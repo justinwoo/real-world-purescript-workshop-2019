@@ -1,0 +1,20 @@
+{
+  "name": "rwps-workshop",
+  "version": "1.0.0",
+  "description": "no",
+  "main": "index.js",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "start": "parcel index.html",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "MIT",
+  "//install these as dev deps or install globally:": "",
+  "//devDependencies": {
+    "purescript": "^0.13.0",
+    "spago": "^0.8.0"
+  }
+}

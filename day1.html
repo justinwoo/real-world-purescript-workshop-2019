@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Real World PureScript (Day 1)</title>
+    <meta charset="utf-8">
+    <link rel="stylesheet" href="styles.css" type="text/css">
+  </head>
+  <body>
+    <textarea id="source">
+
+class: center, middle
+
+# Real World PureScript (Day 1)
+## Justin Woo
+### Monadic Party - 2019 Jun 20
+
+---
+
+# Plan
+
+* Day 1: What is PureScript, and how do these types work?
+
+Introduce the PureScript language, talk about some details with types, kinds, type classes + functional dependencies, and the why and how of row types and row type classes.
+
+<br>
+
+* Day 2: How do we do FFI, and how can we use types to make it better?
+
+Introduce FFI in PureScript, and various approaches to FFI with types, from basic opaque data types to data types with row type parameters.
+
+<br>
+
+<https://github.com/justinwoo/real-world-purescript-workshop-2019>
+
+---
+
+# Preview of Day 1 contents
+
+* Type aliases, newtypes, data types
+
+* Functions, pattern matching, guards
+
+* Anonymous records
+
+* Type classes with multiple parameters and functional dependencies
+
+* Kinds, Row kind
+
+* Records as a type with a row type parameter
+
+* Row type classes
+
+---
+
+# Setup
+
+You will need...
+
+* PureScript 0.13.0
+
+* Spago
+
+* Node 10.x or higher
+
+Installation methods:
+
+* Via Nix: <https://github.com/justinwoo/easy-purescript-nix>
+
+* Via npm: `npm i -g purescript spago`
+
+Please, make sure you have set npm prefix to something like ~/.npm:
+
+```
+# ~/.npmrc
+prefix=/home/your-user/.npm
+```
+
+```
+npm set prefix ~/.npmrc
+```
+
+---
+
+# What is PureScript?
+
+* a Haskell-like language for working with JavaScript
+
+* a language for using types for both static guarantees and automatically derived routines
+
+* a state of mind
+
+* a source of memes on Twitter
+
+* "the row types language"
+
+---
+
+# Hello world (src/Main.purs)
+
+Hello world:
+
+```hs
+module Main where
+-- module Main (main) where
+
+import Prelude
+
+import Effect (Effect)
+import Effect.Console (log)
+
+main :: Effect Unit
+main = do
+  log "Hello sailor!"
+```
+
+`> spago run`
+
+---
+
+# Types (src/Basics.purs)
+
+```hs
+type StringAlias = String
+
+stringAliasValue :: StringAlias
+stringAliasValue = "Hello"
+
+newtype URL = MkURL String
+
+urlValue :: URL
+urlValue = MkURL "https://google.com"
+
+data URLorCode
+  = IsURL String
+  | IsCode String
+
+urlOrCodeValue :: URLorCode
+urlOrCodeValue = IsCode "banana"
+```
+
+---
+
+# Functions
+
+```hs
+unwrapURL :: URL -> String
+unwrapURL (MkURL s) = s
+
+isCode :: URLorCode -> Boolean
+isCode (IsCode _) = true
+isCode (IsURL _) = false
+
+isCode' :: URLorCode -> Boolean
+isCode' x = case x of
+  IsCode _ -> true
+  _ -> false
+
+isCode'' :: URLorCode -> Boolean
+isCode'' x
+  | IsCode _ <- x = true
+  | otherwise = false
+```
+
+---
+
+# Anonymous Records
+
+Unlike Haskell:
+
+```hs
+type MyRecord =
+  { apple :: String
+  , banana :: String
+  , kiwi :: String
+  }
+```
+
+More on this after talking about types, Types, row types, and kinds.
+
+---
+
+## Type Classes (src/TypeClassesAndKinds.purs)
+
+Given some concrete type, you should be able to match some instance, which may lead to
+
+* additional types being determined
+* additional functions being determined
+
+<br>
+
+```hs
+class Unwrap t a | t -> a where
+  unwrap :: t -> a
+
+instance unwrapURLInstance :: Unwrap URL String where
+  unwrap (MkURL s) = s
+```
+
+---
+
+class: middle
+
+```hs
+class RodeoTypes input output | input -> output
+
+instance rodeoIntString :: RodeoTypes Int String
+instance rodeoStringBoolean :: RodeoTypes String Boolean
+
+data Proxy s = Proxy
+
+rodeoTypes :: forall input output
+   . RodeoTypes input output
+  => Proxy input -> Proxy output
+rodeoTypes _ = Proxy
+
+rodeoResult1 :: Proxy String
+rodeoResult1 = rodeoTypes (Proxy :: Proxy Int)
+
+rodeoResult2 :: Proxy ?hole -- Hole 'hole' has the inferred type Boolean
+rodeoResult2 = rodeoTypes (Proxy :: Proxy String)
+```
+
+---
+
+# Kinds
+
+So far, everything has had inferred kinds, typically of kind `Type`.
+
+```hs
+data Proxy (s :: Type) = Proxy
+```
+
+All `Type`s have values, but how about some that don't? e.g. `Symbol` kind:
+
+```hs
+-- from Data.Symbol
+data SProxy (sym :: Symbol) = SProxy
+
+-- Information is simply used in compile time:
+staticStringProxy :: SProxy "hello world"
+staticStringProxy = SProxy
+
+-- from Data.Symbol
+class IsSymbol (sym :: Symbol) where
+  reflectSymbol :: SProxy sym -> String
+
+reflectedSymbolValue :: String
+reflectedSymbolValue = reflectSymbol staticStringProxy
+```
+
+---
+
+# Arrow kind
+
+`->` takes two `Type`s and gives you a `Type`.
+
+<br>
+
+```hs
+type IntToInt1 = Int -> Int
+
+type Arrow = (->) :: Type -> Type -> Type
+type FromInt = (->) Int :: Type -> Type
+type IntToInt2 = FromInt Int :: Type
+```
+
+---
+
+# Row kind (src/Rows.purs)
+
+Special symbol `#`, which can create a row of a type of a kind.
+
+"Row": unordered collection of fields by Symbol and associated type of a kind.
+
+```hs
+type EmptyRow = () :: # Type
+type SingleRow = ( a :: String ) :: # Type
+type SymbolRow = ( a :: "apple" ) :: # Symbol
+```
+
+<br>
+
+Enables user-created data types, e.g. polymorphic variants as a library: `purescript-variant`
+
+```hs
+foreign import data Variant :: # Type -> Type
+```
+
+---
+
+# Records
+
+```hs
+-- from Prim ("builtins")
+data Record :: # Type -> Type
+
+type MyRecordA =
+  { apple :: String
+  , banana :: String
+  }
+
+type MyRecordB =
+  Record
+    ( apple :: String
+    , banana :: String
+    )
+
+id = identity :: MyRecordA -> MyRecordB
+
+fn1 :: MyRecordA -> String
+fn1 r = r.apple
+
+fn1 :: MyRecordA -> MyRecordA
+fn1 r = r { apple = "no" }
+```
+
+---
+
+# Row type classes
+
+What if we could use the row type parameter of `Record` and be able to get generic type-level information?
+
+```hs
+-- Built-in type classes in `Prim.Row`
+
+class Union (left :: # Type) (right :: # Type) (union :: # Type)
+  | left right -> union
+  , right union -> left
+  , union left -> right
+
+class Nub (original :: # Type) (nubbed :: # Type)
+  | original -> nubbed
+
+class Lacks (label :: Symbol) (row :: # Type)
+
+class Cons (label :: Symbol) (a :: Type) (tail :: # Type) (row :: # Type)
+  | label a tail -> row
+  , label row -> a tail
+```
+
+---
+
+# PureScript-Record
+
+`purescript-record` is a library which uses exactly these constraints to extract type information.
+
+```hs
+get :: forall r r' l a
+   . IsSymbol l
+  => Row.Cons l a r' r
+  => SProxy l -> { | r } -> a
+get = -- ...
+
+result :: ?hole -- Hole 'hole' has the inferred type Int
+result = get (SProxy :: _ "apple") { apple: 123 }
+```
+
+```hs
+insert :: forall r1 r2 l a
+   . IsSymbol l
+  => Lacks l r1
+  => Cons l a r1 r2
+  => SProxy l -> a -> { | r1 } -> { | r2 }
+```
+
+---
+
+# Review of Day 1 contents
+
+* Type aliases, newtypes, data types
+
+* Functions, pattern matching, guards
+
+* Anonymous records
+
+* Type classes with multiple parameters and functional dependencies
+
+* Kinds, Row kind
+
+* Records as a type with a row type parameter
+
+* Row type classes
+
+---
+
+# Extra reading
+
+* Generics-Rep (Datatype Generics) tutorial <https://purescript-simple-json.readthedocs.io/en/latest/generics-rep.html>
+
+A tutorial of how to use Datatype Generics in PureScript, which allow you to work with a generic representation of types which are derived by the compiler, so that you can write a series of type classes that work for all data types deriving methods of generic representations.
+
+<br>
+
+* "Type classes and Instances are Pattern Matching for Types" <https://github.com/justinwoo/my-blog-posts/blob/master/posts/2018-04-27-type-classes-and-instances-are-pattern-matching-for-types.md>
+
+A general post about how working in the type level has many parallels to working in the value level, with discussion of `RowToList`.
+
+---
+
+# Humor
+
+* "Fun Type Level literal number arithmetic with Instance Chains" https://github.com/justinwoo/my-blog-posts/blob/master/posts/2018-05-27-fun-type-level-literal-number-arithmetic-with-instance-chains.md
+
+```hs
+class Add (l :: Symbol) (r :: Symbol) (o :: Symbol) | l -> r o
+
+instance zeroAdd :: Add "zero" r r
+
+else instance succAdd ::
+  ( Succ l' l
+  , Succ r r'
+  , Add l' r' o
+  ) => Add l r o
+```
+
+* "We don't need Peano Numbers in PureScript" <https://github.com/justinwoo/my-blog-posts/blob/master/posts/2018-09-11-we-dont-need-peano-numbers-in-purescript.md>
+
+```hs
+resultSub2 :: SProxy "....................................."
+resultSub2 =
+  T.sub (SProxy :: SProxy "...............................................") (SProxy :: SProxy T.Ten)
+```
+
+---
+
+# Some memes
+
+* https://twitter.com/jusrin00/status/1012327213591605249
+* https://twitter.com/jusrin00/status/933428832618545153
+* https://twitter.com/jusrin00/status/963892030773579776
+* https://twitter.com/jusrin00/status/1082058122393513984
+* https://twitter.com/jusrin00/status/1053763021208723456
+* https://twitter.com/jusrin00/status/985596999998328832
+* https://twitter.com/jusrin00/status/968471589812670465
+* https://twitter.com/jusrin00/status/1008330774884601856
+* https://twitter.com/jusrin00/status/1132007452810063874
+* https://twitter.com/jusrin00/status/1128059526404554752
+* https://twitter.com/jusrin00/status/1094190044175159296
+
+    </textarea>
+    <script src="remark-latest.min.js">
+    </script>
+    <script>
+      var slideshow = remark.create();
+    </script>
+  </body>
+</html>

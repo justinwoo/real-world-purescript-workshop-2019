@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Real World PureScript (Day 2)</title>
+    <meta charset="utf-8">
+    <link rel="stylesheet" href="styles.css" type="text/css">
+  </head>
+  <body>
+    <textarea id="source">
+
+class: center, middle
+
+# Real World PureScript (Day 2)
+## Justin Woo
+### Monadic Party - 2019 Jun 21
+
+---
+
+# Plan
+
+* Day 1: What is PureScript, and how do these types work?
+
+Introduce the PureScript language, talk about some details with types, kinds, type classes + functional dependencies, and the why and how of row types and row type classes.
+
+<br>
+
+* Day 2: How do we do FFI, and how can we use types to make it better?
+
+Introduce FFI in PureScript, and various approaches to FFI with types, from basic opaque data types to data types with row type parameters.
+
+<br>
+
+<https://github.com/justinwoo/real-world-purescript-workshop-2019>
+
+---
+
+# Setup
+
+You will need...
+
+* PureScript 0.13.0
+
+* Spago
+
+* Node 10.x or higher
+
+Installation methods:
+
+* Via Nix: <https://github.com/justinwoo/easy-purescript-nix>
+
+* Via npm: `npm i -g purescript spago`
+
+Please, make sure you have set npm prefix to something like ~/.npm:
+
+```
+# ~/.npmrc
+prefix=/home/your-user/.npm
+```
+
+```
+npm set prefix ~/.npmrc
+```
+
+---
+
+# Review of Day 1 contents
+
+* Type aliases, newtypes, data types
+
+* Functions, pattern matching, guards
+
+* Anonymous records
+
+* Type classes with multiple parameters and functional dependencies
+
+* Kinds, Row kind
+
+* Records as a type with a row type parameter
+
+* Row type classes
+
+---
+
+# Preview of Day 2 contents
+
+* What is PureScirpt for JS?
+
+* Functions
+
+* Effects
+
+* Runtime representation of values of types
+
+* Adding more types (and kinds)
+
+* Opaque data types
+
+* Row Union and other row constraint applications
+
+* RowToList put to use
+
+* Practical example of everything put together by reading a record
+
+---
+
+### What is PureScript? (for a JavaScript consumer) (src/Functions.purs)
+
+* Bunch of CommonJS modules (as of PureScript 0.13.0)
+
+```js
+"use strict";
+var Effect_Console = require("../Effect.Console/index.js");
+var main = Effect_Console.log("Hello sailor!");
+module.exports = {
+    main: main
+};
+```
+
+* "Effects" come as a bunch of thunks that must be called. E.g. `main :: Effect Unit`
+
+```js
+> require('./output/Main').main()
+Hello sailor!
+{}
+```
+
+* Functions must be explicitly defined and used
+
+```js
+const output = require('./output/Functions');
+console.log('add2', output.add2(1)(1));
+console.log('add2Fn2', output.add2Fn2(1, 1));
+```
+
+---
+
+# Functions for FFI
+
+Every regular function is "curried" in PureScript and must be "uncurried".
+
+```hs
+import Data.Function.Uncurried (Fn2, Fn3, Fn4, mkFn2, mkFn3, runFn2, runFn4)
+
+add2 :: Int -> Int -> Int
+add2 a b = a + b
+
+result1 :: Int
+result1 = add2 1 2
+
+add2Fn2 :: Fn2 Int Int Int
+add2Fn2 = mkFn2 add2
+
+result2 :: Int
+result2 = runFn2 add2Fn2 1 2
+```
+
+```js
+const output = require('./output/Functions');
+console.log('add2', output.add2(1)(1));
+console.log('add2Fn2', output.add2Fn2(1, 1));
+```
+
+---
+
+class: middle
+
+```js
+// Functions.js
+exports.jsAdd4 = function(a, b, c, d) {
+  return a + b + c + d;
+};
+```
+
+```hs
+-- Functions.purs
+foreign import jsAdd4 :: Fn4 Int Int Int Int Int
+
+result3 :: Int
+result3 = runFn4 jsAdd4 1 2 3 4
+```
+
+---
+
+# Effects for FFI
+
+.flex[
+.flex-cell[
+```js
+// Functions.js
+exports.jsLogInt = function(i) {
+  return function() {
+    console.log(i.toString());
+  };
+};
+
+exports.jsUnthunkedLogInt = function(i) {
+  console.log(i.toString())
+}
+```
+</code></pre>
+]
+
+.flex-cell[
+```hs
+-- Functions.purs
+logInt :: Int -> Effect Unit
+logInt i = Console.logShow i
+
+foreign import jsLogInt :: Int -> Effect Unit
+
+-- Uncurried Effect Functions
+unthunkedLogInt :: EffectFn1 Int Unit
+unthunkedLogInt = mkEffectFn1 logInt
+
+foreign import jsUnthunkedLogInt :: EffectFn1 Int Unit
+
+rethunkedLogInt :: Int -> Effect Unit
+rethunkedLogInt i = runEffectFn1 jsUnthunkedLogInt i
+```
+</code></pre>
+]
+]
+
+---
+
+# Notes on Types
+
+* Type aliases
+
+No changes
+
+* Newtypes
+
+Same representation as underlying type, e.g. `newtype URL = URL String`
+
+* Data types
+
+Currently (PS 0.13) generates JS classes in specific directories. Not really worth trying to make them with JS. Instead, pass functions from PureScript to construct the types:
+
+```hs
+foreign import _index :: forall a
+   . (a -> Maybe a)
+  -> Maybe a
+  -> Int -> Array a -> Maybe a
+
+index :: forall a. Int -> Array a -> Maybe a
+index = _index Just Nothing
+```
+
+---
+
+## Expanding our types (src/FFIWithTypes.purs)
+
+<br>
+
+We can define our own kinds and types, which can be especially useful for FFI.
+
+```hs
+foreign import kind RequestMethod
+
+foreign import data GetRequest :: RequestMethod
+foreign import data PostRequest :: RequestMethod
+
+data Route (method :: RequestMethod) = Route URL
+
+class GetMethod (method :: RequestMethod) where
+  getMethod :: Route method -> String
+```
+
+---
+
+class: middle
+
+We can use this to add some type level information to our effects naively:
+
+```hs
+foreign import kind EFFECT
+foreign import data TERM :: EFFECT
+foreign import data LOL :: EFFECT
+
+newtype Eff (fx :: # EFFECT) a = Eff (Effect a)
+
+lol :: Eff (lol :: LOL) Unit
+lol = Eff $ pure unit
+
+log :: String -> Eff (stdout :: TERM) Unit
+log = Eff <<< Console.log
+```
+
+(Demonstration purposes only. Do not use this modeling.)
+
+We should remember that PureScript is not polykinded, i.e. all of the useful row type classes only work with `# Type`. But this tends to not be a problem, as most uses center around values anyway.
+
+---
+
+# Opaque data type
+
+The oldest method known to man, making the structure of some value opaque to consumers and providing strict levels of access:
+
+```hs
+foreign import data Process :: Type
+
+foreign import process :: Process
+
+foreign import processExit :: Process -> Effect Unit
+```
+
+<br>
+
+Also works for more advanced purposes:
+
+```hs
+foreign import data Variant :: # Type -> Type
+
+inj :: forall sym a r1 r2
+   . RowCons sym a r1 r2 => IsSymbol sym
+  => SProxy sym -> a -> Variant r2
+```
+
+---
+
+# The "Basic" problem
+
+What about those JavaScript libraries that require a partial set of all properties?
+
+Just apply Row Union:
+
+```hs
+class Union (left :: # Type) (right :: # Type) (union :: # Type)
+  | left right -> union
+  , right union -> left
+  , union left -> right
+```
+
+```hs
+type DivPropsRow =
+  ( className :: String
+  , apple :: Int
+  , kiwi :: Boolean
+  )
+
+reactDivElementProperties :: forall input rest
+   . Row.Union input rest DivPropsRow
+  => { | input } -> JSX
+```
+
+---
+
+## RowToList: row goodness, but in iterable form
+
+From Day 1:
+
+> "Row": unordered collection of fields by Symbol and associated type of a kind.
+
+What if we could take this unordered collection and make an ordered list of pairs?
+
+```hs
+-- from Prim.RowList
+kind RowList
+
+data Cons :: Symbol -> Type -> RowList -> RowList
+data Nil :: RowList
+
+class RowToList (row :: # Type) (list :: RowList)
+  | row -> list
+```
+
+---
+
+class: middle
+
+```hs
+type MyRecord =
+  { apple :: String
+  , banana :: String
+  , kiwi :: String
+  }
+
+rowList :: forall r rl. RL.RowToList r rl => Proxy { | r } -> RLProxy rl
+rowList _ = RLProxy
+
+myRecordRL ::
+  RLProxy
+    (RL.Cons "apple" String
+      (RL.Cons "banana" String
+        (RL.Cons "kiwi" String
+          RL.Nil)))
+myRecordRL = rowList (Proxy :: Proxy MyRecord)
+```
+
+---
+
+<br><br>
+
+For fun:
+
+```hs
+class Keys (rl :: RL.RowList) where
+  keysImpl :: RLProxy rl -> Array String
+
+instance keysNil :: Keys RL.Nil where
+  keysImpl _ = []
+
+instance keysCons ::
+  ( IsSymbol name
+  , Keys tail
+  ) => Keys (RL.Cons name ty tail) where
+  keysImpl _ =
+    let
+      curr = reflectSymbol (SProxy :: _ name)
+      rest = keysImpl (RLProxy :: _ tail)
+    in Array.cons curr rest
+
+keys :: forall r rl
+   . RL.RowToList r rl => Keys rl
+  => Proxy { | r } -> Array String
+keys _ = keysImpl (RLProxy :: _ rl)
+```
+
+---
+
+# Reading JSON
+
+1. JSON.parse to some Foreign value
+2. Define functions from Foreign into either an error or a typed value
+3. Write a series of type classes to do this
+
+```hs
+foreign import data JSValue :: Type
+foreign import jsonParse :: String -> Effect JSValue
+newtype Error = Error String
+
+class DecodeJSValue a where
+  decode :: JSValue -> Either Error a
+
+foreign import _readString :: forall e a
+   . (e -> Either e a) -> (a -> Either e a)
+  -> JSValue -> Either e a
+
+readString :: JSValue -> Either Error String
+readString = _readString Left Right
+
+instance decodeJSValueString :: DecodeJSValue String where
+  decode = readString
+```
+
+What about an instance of Records?
+
+---
+
+class: middle
+
+Remember, { | r } ~ Record r, and r can be made iterable by RowToList.
+
+```hs
+instance decodeJSValueRecord ::
+  ( RL.RowToList r rl
+  , DecodeJSValueRecordFields rl r
+  ) => DecodeJSValue { | r } where
+  decode jsv = do
+    case checkTypeOf jsv of
+      "object" -> decodeFields (RLProxy :: _ rl) jsv
+      x -> Left <<< Error $ "expected object, got " <> x
+
+foreign import checkTypeOf :: JSValue -> String
+```
+
+---
+
+class: middle
+
+```hs
+class DecodeJSValueRecordFields (xs :: RL.RowList) (r :: # Type)
+  | xs -> r where
+  decodeFields :: RLProxy xs -> JSValue -> Either Error { | r }
+
+
+instance decodeJSValueRecordFieldsNil :: DecodeJSValueRecordFields RL.Nil () where
+  decodeFields _ _ = Right {}
+```
+
+---
+
+class: middle
+
+```hs
+instance decodeJSValueRecordFieldsCons ::
+  ( IsSymbol name
+  , Row.Cons name ty r' r
+  , Row.Lacks name r'
+  , DecodeJSValue ty
+  , DecodeJSValueRecordFields tail r'
+  ) => DecodeJSValueRecordFields (RL.Cons name ty tail) r where
+  decodeFields _ jsv =
+    Record.insert nameS
+      <$> first
+      <*> rest
+    where
+      nameS = SProxy :: _ name
+      first = do
+        prop <- lmap Error $ readProp (reflectSymbol nameS) jsv
+        decode prop
+      rest = decodeFields (RLProxy :: _ tail) jsv
+```
+
+---
+
+# Review of Day 2 contents
+
+* What is PureScirpt for JS?
+
+* Functions
+
+* Effects
+
+* Runtime representation of values of types
+
+* Adding more types (and kinds)
+
+* Opaque data types
+
+* Row Union and other row constraint applications
+
+* RowToList put to use
+
+* Practical example of everything put together by reading a record
+
+---
+
+# Extra Reading
+
+* Effect.Uncurried documentation <https://pursuit.purescript.org/packages/purescript-effect/2.0.1/docs/Effect.Uncurried>
+
+* "User Empowerment of FFI in PureScript" <https://github.com/justinwoo/my-blog-posts/blob/master/posts/2018-07-29-user-empowerment-of-ffi-in-purescript.md>
+
+* "Basic" related: "Using Rows and RowToList to model Chart.js spec building" <https://github.com/justinwoo/my-blog-posts/blob/master/posts/2018-01-30-using-rows-and-rowtolist-to-model-chart.js-spec-building.md>
+
+* Aff-Promises documentation <https://pursuit.purescript.org/packages/purescript-aff-promise/2.0.0>
+
+* Handling JS Unions with row types <https://github.com/justinwoo/my-blog-posts/blob/master/posts/2018-04-02-handling-js-unions-with-row-types.md>
+
+---
+
+# Examples of "real world"
+
+https://github.com/justinwoo/purescript-toppokki
+
+https://github.com/justinwoo/purescript-milkis
+
+https://github.com/justinwoo/purescript-node-telegram-bot-api
+
+https://github.com/justinwoo/purescript-simple-json
+
+https://my-purescript-libraries.readthedocs.io/en/latest/
+
+    </textarea>
+    <script src="remark-latest.min.js">
+    </script>
+    <script>
+      var slideshow = remark.create();
+    </script>
+  </body>
+</html>

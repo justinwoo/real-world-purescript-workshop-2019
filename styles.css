@@ -1,0 +1,9 @@
+body { font-family: 'Noto Sans CJK JP'; }
+h1, h2, h3 { font-weight: normal; }
+.remark-code, .remark-inline-code {
+font-family: 'Noto Sans Mono CJK JP';
+font-size: 14px;
+}
+.remark-slide-content { font-size: 16px; }
+.flex { display: flex; }
+.flex-cell { flex: 1; padding: 10px; }
