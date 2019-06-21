@@ -6,6 +6,8 @@ Materials subject to change.
 
 Please do not post links to this repository in public before June 22nd.
 
-[Day 1](./day1.html)
+http://justinwoo.github.io/real-world-purescript-workshop-2019
 
-[Day 2](./day2.html)
+[Day 1](https://jusrin.dev/real-world-purescript-workshop-2019/day1.html#1)
+
+[Day 2](https://jusrin.dev/real-world-purescript-workshop-2019/day2.html#1)
