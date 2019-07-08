@@ -14,7 +14,7 @@
   "license": "MIT",
   "//install these as dev deps or install globally:": "",
   "//devDependencies": {
-    "purescript": "^0.13.0",
+    "purs-bin-simple": "^0.3.0",
     "spago": "^0.8.0"
   }
 }
